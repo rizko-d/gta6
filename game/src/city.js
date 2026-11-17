@@ -1,213 +1,147 @@
-// The city of Solmar: a grid of avenues and streets, the blocks between
-// them filled with buildings, parks and trees, and a sandy beach along the
-// south edge. Generation is seeded, so one seed always builds the same city.
-// This module also answers the questions the rules keep asking: is this
-// point on a road, does it hit a building, where is the nearest road.
+// The city of Solmar: a seeded 3200x2400 grid of avenues and streets.
+// Roads are free to drive and walk; the blocks between them hold
+// buildings, two parks, a beach along the south edge and a marina on
+// the east edge. The bank block and the garage block hold no generated
+// buildings, so the vault and the hideout are always reachable.
+import { ROADS_H, ROADS_V, ROAD_HALF, WORLD, PALETTE } from './config.js';
+import { RNG, hash2 } from './random.js';
 
-import { WORLD, ROADS_V, ROADS_H, ROAD_W, PALETTE } from './config.js';
-import { createRandom } from './random.js';
-
-/** Half the road width, plus the sidewalk that runs along each edge. */
-const HALF = ROAD_W / 2;
-const SIDEWALK = 16;
-
-/** The blocks are the gaps between roads, plus the strips at the edges. */
-function blockRanges(roads, size) {
-  const ranges = [];
-  let start = 0;
-  for (const road of roads) {
-    ranges.push([start, road - HALF - SIDEWALK]);
-    start = road + HALF + SIDEWALK;
-  }
-  ranges.push([start, size]);
-  return ranges;
+export function isRoad(x, y) {
+  for (const rx of ROADS_V) if (Math.abs(x - rx) <= ROAD_HALF) return true;
+  for (const ry of ROADS_H) if (Math.abs(y - ry) <= ROAD_HALF) return true;
+  return false;
 }
 
-export function generateCity(seed) {
-  const rng = createRandom(seed);
+export function inWater(x, y) {
+  return x > 3080;
+}
+
+export function buildCity(seed) {
+  const rng = new RNG(seed);
   const buildings = [];
-  const parks = [];
   const trees = [];
-  const xs = blockRanges(ROADS_V, WORLD.width);
-  const ys = blockRanges(ROADS_H, WORLD.height);
-  let colorIndex = 0;
-  for (let by = 0; by < ys.length; by += 1) {
-    for (let bx = 0; bx < xs.length; bx += 1) {
-      const [x0, x1] = xs[bx];
-      const [y0, y1] = ys[by];
-      const w = x1 - x0;
-      const h = y1 - y0;
-      if (w < 90 || h < 90) continue;
-      // The last row is the beach: sand and palms, never buildings.
-      if (by === ys.length - 1) {
-        const count = 4 + Math.floor(rng() * 4);
-        for (let i = 0; i < count; i += 1) {
-          trees.push({ x: x0 + 30 + rng() * (w - 60), y: y0 + 24 + rng() * (h - 48), r: 13, palm: true });
+  const parks = [];
+
+  // Park blocks, picked by seed from the interior blocks.
+  const blockXs = [];
+  for (let i = 0; i < ROADS_V.length - 1; i++) {
+    blockXs.push([ROADS_V[i] + ROAD_HALF + 8, ROADS_V[i + 1] - ROAD_HALF - 8]);
+  }
+  const blockYs = [];
+  for (let i = 0; i < ROADS_H.length - 1; i++) {
+    blockYs.push([ROADS_H[i] + ROAD_HALF + 8, ROADS_H[i + 1] - ROAD_HALF - 8]);
+  }
+  const parkPick = new Set();
+  while (parkPick.size < 2) parkPick.add(rng.int(0, blockXs.length * blockYs.length - 1));
+  const parkBlocks = [...parkPick].map((n) => {
+    const bx = n % blockXs.length;
+    const by = Math.floor(n / blockXs.length);
+    return { x0: blockXs[bx][0], y0: blockYs[by][0], x1: blockXs[bx][1], y1: blockYs[by][1] };
+  });
+
+  // The bank block (1400-1800 x, 1000-1400 y) and the garage block
+  // (600-1000 x, 400-600 y) stay clear of generated buildings.
+  const clearBlocks = [
+    { x0: 1400, y0: 1000, x1: 1800, y1: 1400 },
+    { x0: 600, y0: 400, x1: 1000, y1: 600 },
+  ];
+
+  for (let by = 0; by < blockYs.length; by++) {
+    for (let bx = 0; bx < blockXs.length; bx++) {
+      const [x0, x1] = blockXs[bx];
+      const [y0, y1] = blockYs[by];
+      const isPark = parkBlocks.some((p) => p.x0 === x0 && p.y0 === y0);
+      const isClear = clearBlocks.some((c) => x0 >= c.x0 && x1 <= c.x1 && y0 >= c.y0 && y1 <= c.y1);
+      if (isPark) {
+        parks.push({ x0, y0, x1, y1 });
+        const count = rng.int(5, 9);
+        for (let i = 0; i < count; i++) {
+          trees.push({
+            x: rng.range(x0 + 20, x1 - 20),
+            y: rng.range(y0 + 20, y1 - 20),
+            r: rng.range(9, 15),
+          });
         }
         continue;
       }
-      if (rng() < 0.22) {
-        parks.push({ x: x0, y: y0, w, h });
-        const count = 3 + Math.floor(rng() * 5);
-        for (let i = 0; i < count; i += 1) {
-          trees.push({ x: x0 + 26 + rng() * (w - 52), y: y0 + 26 + rng() * (h - 52), r: 11 + rng() * 5, palm: false });
-        }
-        continue;
-      }
-      // One or two buildings per block, with a margin so streets stay open.
-      const split = w > 300 && rng() < 0.55;
-      const slots = split ? 2 : 1;
-      for (let s = 0; s < slots; s += 1) {
-        const sx0 = x0 + (split ? (s * w) / 2 : 0) + 14;
-        const sx1 = x0 + (split ? ((s + 1) * w) / 2 : w) - 14;
-        const bw = sx1 - sx0;
-        const bh = h - 28;
-        if (bw < 60 || bh < 60) continue;
-        const shrinkX = rng() * 0.2;
-        const shrinkY = rng() * 0.2;
-        const color = PALETTE.building[colorIndex % PALETTE.building.length];
-        const roof = PALETTE.roof[colorIndex % PALETTE.roof.length];
-        colorIndex += 1;
+      if (isClear) continue;
+      // One to three buildings per block, seeded by block coordinates
+      // so the layout is stable for the seed.
+      const n = 1 + Math.floor(hash2(bx, by, 7) * 3);
+      for (let i = 0; i < n; i++) {
+        const w = rng.range(90, 190);
+        const h = rng.range(80, 170);
+        const x = rng.range(x0 + 10, Math.max(x0 + 11, x1 - w - 10));
+        const y = rng.range(y0 + 10, Math.max(y0 + 11, y1 - h - 10));
         buildings.push({
-          x: sx0 + (bw * shrinkX) / 2,
-          y: y0 + 14 + (bh * shrinkY) / 2,
-          w: bw * (1 - shrinkX),
-          h: bh * (1 - shrinkY),
-          color,
-          roof,
+          x,
+          y,
+          w,
+          h,
+          color: PALETTE.building[Math.floor(hash2(bx, by, i + 1) * PALETTE.building.length)],
+          roof: PALETTE.roof[Math.floor(hash2(bx, by, i + 11) * PALETTE.roof.length)],
+        });
+      }
+      // A couple of sidewalk trees per block.
+      for (let i = 0; i < 2; i++) {
+        trees.push({
+          x: rng.range(x0, x1),
+          y: rng.range(y0, y1),
+          r: rng.range(7, 11),
         });
       }
     }
   }
-  return { buildings, parks, trees, seed };
+
+  // The beach: the strip below the last street is sand, walkable.
+  // The marina: the strip east of the last avenue is water, with a
+  // wooden pier reaching out to the docks.
+  return {
+    buildings,
+    trees,
+    parks,
+    beach: { x0: 0, y0: 2280, x1: WORLD.w, y1: WORLD.h },
+    water: { x0: 3080, y0: 0, x1: WORLD.w, y1: WORLD.h },
+    pier: { x0: 2960, y0: 1700, x1: 3080, y1: 1800 },
+  };
 }
 
-/** True when the point is on asphalt (not on a sidewalk or a block). */
-export function isOnRoad(x, y) {
-  for (const road of ROADS_V) if (Math.abs(x - road) <= HALF) return true;
-  for (const road of ROADS_H) if (Math.abs(y - road) <= HALF) return true;
-  return false;
-}
-
-/** True when the point is on a sidewalk strip beside a road. */
-export function isOnSidewalk(x, y) {
-  for (const road of ROADS_V) {
-    const d = Math.abs(x - road);
-    if (d > HALF && d <= HALF + SIDEWALK) return true;
-  }
-  for (const road of ROADS_H) {
-    const d = Math.abs(y - road);
-    if (d > HALF && d <= HALF + SIDEWALK) return true;
-  }
-  return false;
-}
-
-/** The nearest point on any road centre line to (x, y). */
-export function nearestRoadPoint(x, y) {
-  let best = null;
-  let bestDist = Infinity;
-  for (const road of ROADS_V) {
-    const d = Math.abs(x - road);
-    if (d < bestDist) {
-      bestDist = d;
-      best = { x: road, y };
-    }
-  }
-  for (const road of ROADS_H) {
-    const d = Math.abs(y - road);
-    if (d < bestDist) {
-      bestDist = d;
-      best = { x, y: road };
-    }
-  }
-  return best;
-}
-
-/** The road (axis, centre, direction sign) a point is closest to, for traffic. */
-export function nearestRoad(x, y) {
-  let best = { axis: 'v', centre: ROADS_V[0], dist: Infinity };
-  for (const road of ROADS_V) {
-    const d = Math.abs(x - road);
-    if (d < best.dist) best = { axis: 'v', centre: road, dist: d };
-  }
-  for (const road of ROADS_H) {
-    const d = Math.abs(y - road);
-    if (d < best.dist) best = { axis: 'h', centre: road, dist: d };
-  }
-  return best;
-}
-
-/** True when a circle of radius r at (x, y) touches any building or the world edge. */
-export function hitsBuilding(city, x, y, r) {
-  if (x < r || y < r || x > WORLD.width - r || y > WORLD.height - r) return true;
+// Push a circle out of every building it overlaps and out of the water.
+// Returns true if a hard impact happened (speed above the threshold).
+export function collideCircle(city, p, r, impactSpeed = 0) {
+  let hit = false;
   for (const b of city.buildings) {
-    if (x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h) return true;
-  }
-  return false;
-}
-
-/** Push a circle out of buildings and the world edge; returns true when it was pushed. */
-export function resolveBuildingCollision(city, body, r) {
-  let pushed = false;
-  if (body.x < r) {
-    body.x = r;
-    pushed = true;
-  }
-  if (body.y < r) {
-    body.y = r;
-    pushed = true;
-  }
-  if (body.x > WORLD.width - r) {
-    body.x = WORLD.width - r;
-    pushed = true;
-  }
-  if (body.y > WORLD.height - r) {
-    body.y = WORLD.height - r;
-    pushed = true;
-  }
-  for (const b of city.buildings) {
-    const cx = Math.max(b.x, Math.min(body.x, b.x + b.w));
-    const cy = Math.max(b.y, Math.min(body.y, b.y + b.h));
-    const dx = body.x - cx;
-    const dy = body.y - cy;
+    const cx = Math.max(b.x, Math.min(p.x, b.x + b.w));
+    const cy = Math.max(b.y, Math.min(p.y, b.y + b.h));
+    const dx = p.x - cx;
+    const dy = p.y - cy;
     const d2 = dx * dx + dy * dy;
-    if (d2 < r * r && d2 > 0.0001) {
-      const d = Math.sqrt(d2);
-      body.x = cx + (dx / d) * r;
-      body.y = cy + (dy / d) * r;
-      pushed = true;
-    } else if (d2 <= 0.0001) {
-      // Centre inside the building: push out along the shortest side.
-      const left = body.x - b.x;
-      const right = b.x + b.w - body.x;
-      const top = body.y - b.y;
-      const bottom = b.y + b.h - body.y;
-      const m = Math.min(left, right, top, bottom);
-      if (m === left) body.x = b.x - r;
-      else if (m === right) body.x = b.x + b.w + r;
-      else if (m === top) body.y = b.y - r;
-      else body.y = b.y + b.h + r;
-      pushed = true;
+    if (d2 < r * r) {
+      hit = true;
+      if (d2 > 0.01) {
+        const d = Math.sqrt(d2);
+        p.x = cx + (dx / d) * r;
+        p.y = cy + (dy / d) * r;
+      } else {
+        // Dead centre: push up out of the roof.
+        p.y = b.y - r;
+      }
     }
   }
-  return pushed;
-}
-
-/** A random point on a road, for spawning traffic and pedestrians. */
-export function randomRoadPoint(rng) {
-  if (rng() < 0.5) {
-    const road = ROADS_V[Math.floor(rng() * ROADS_V.length)];
-    return { x: road + (rng() - 0.5) * (ROAD_W - 40), y: 80 + rng() * (WORLD.height - 160) };
+  // The water is solid: keep the circle on the shore side.
+  if (p.x + r > city.water.x0) {
+    p.x = city.water.x0 - r;
+    hit = true;
   }
-  const road = ROADS_H[Math.floor(rng() * ROADS_H.length)];
-  return { x: 80 + rng() * (WORLD.width - 160), y: road + (rng() - 0.5) * (ROAD_W - 40) };
+  // The world edge is solid too.
+  p.x = Math.max(r, Math.min(WORLD.w - r, p.x));
+  p.y = Math.max(r, Math.min(WORLD.h - r, p.y));
+  return hit && impactSpeed > 200;
 }
 
-/** A random point on a sidewalk beside a road. */
-export function randomSidewalkPoint(rng) {
-  const p = randomRoadPoint(rng);
-  const road = nearestRoad(p.x, p.y);
-  if (road.axis === 'v') p.x = road.centre + (rng() < 0.5 ? -1 : 1) * (HALF + SIDEWALK / 2);
-  else p.y = road.centre + (rng() < 0.5 ? -1 : 1) * (HALF + SIDEWALK / 2);
-  return p;
+export function pointBlocked(city, x, y) {
+  for (const b of city.buildings) {
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return true;
+  }
+  return inWater(x, y);
 }
