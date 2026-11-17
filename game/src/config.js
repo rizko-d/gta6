@@ -1,191 +1,99 @@
-// SOLMAR — tuning, palette, places and the mission chain. Every number the
-// rules use lives here, so the world, the renderer and the screenshots all
-// agree on what the city is. The city is Solmar, a sun-soaked coastal town
-// of the player's own: no borrowed names, maps or characters anywhere.
+// Every tuning number, place and colour in one place. The world is a
+// fixed 3200x2400 city; the renderer scales the view to the window, so
+// no rule below depends on the screen size.
 
-/** The city is a fixed 3200x2400 world; the camera shows a 1280x720 window of it. */
-export const WORLD = { width: 3200, height: 2400 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
 export const STEP = 1 / 60;
 
-/** Asphalt width of every road; sidewalks run along both edges. */
-export const ROAD_W = 120;
-export const ROADS_V = [400, 1000, 1600, 2200, 2800];
-export const ROADS_H = [300, 800, 1300, 1800, 2200];
+export const WORLD = { w: 3200, h: 2400 };
 
-/** Where the save and the best run are kept between visits (this browser only). */
-export const SAVE_KEY = 'solmar.save.v1';
-export const BEST_KEY = 'solmar.best.v1';
+// Avenues run north-south, streets east-west. Road centres, in world px.
+export const ROADS_V = [200, 600, 1000, 1400, 1800, 2200, 2600, 3000];
+export const ROADS_H = [200, 600, 1000, 1400, 1800, 2200];
+export const ROAD_HALF = 46;
 
-export const PLAYER = {
-  radius: 13,
-  walkSpeed: 215,
-  runSpeed: 305,
-  health: 100,
-  /** Seconds a foot cop needs pressed against the player to bust them. */
-  bustTime: 1.1,
-};
+export const SAVE_KEY = 'solmar-save-v1';
 
-export const GUN = {
-  damage: 34,
-  bulletSpeed: 760,
-  range: 520,
-  magSize: 12,
-  reloadSeconds: 1.1,
-  fireInterval: 0.16,
-  spread: 0.05,
-};
-
-export const CAR = {
-  length: 46,
-  width: 22,
-  accel: 620,
-  brake: 900,
-  maxSpeed: 460,
-  maxReverse: 190,
-  turnRate: 3.2,
-  drag: 0.55,
-  /** Police cruisers are only just faster than anything the player can steal. */
-  policeMaxSpeed: 480,
-};
-
-export const TRAFFIC = {
-  count: 14,
-  parkedCount: 7,
-  cruiseMin: 130,
-  cruiseMax: 205,
-  /** Chance a traffic car turns at an intersection, per crossing. */
-  turnChance: 0.38,
-};
-
-export const PEDS = { count: 26, walkMin: 42, walkMax: 78, fleeSpeed: 250 };
-
-export const WANTED = {
-  max: 5,
-  /** Seconds of no crime and no cop in sight before one star cools off. */
-  coolSeconds: 13,
-  copSight: 460,
-  /** Cop cars on the hunt: 1 per star, plus one more from 3 stars up. */
-  carsForStars: (stars) => Math.min(1 + stars + (stars >= 3 ? 1 : 0), 5),
-  footCopsForStars: (stars) => Math.min(stars, 3),
-};
-
-export const POLICE = {
-  shootRange: 320,
-  shootInterval: 1.25,
-  bulletDamage: 7,
-  bulletSpeed: 520,
-  ramDamage: 5,
-  /** Seconds between one cruiser's damaging rams. */
-  ramCooldown: 1.8,
-};
-
-/** Named places, all on road centres or at intersections, so markers are always reachable. */
+// Landmark points. The bank and garage blocks hold no generated
+// buildings, so these points are always reachable on foot.
 export const PLACES = {
-  safehouse: { x: 1600, y: 1300, name: "Vera's Garage" },
-  bank: { x: 1000, y: 800, name: 'Solmar National Bank' },
-  docks: { x: 400, y: 2200, name: 'Marina Docks' },
-  autoshop: { x: 2200, y: 300, name: "Rico's Auto" },
-  motel: { x: 2800, y: 1800, name: 'Palm Court Motel' },
-  plaza: { x: 1000, y: 1800, name: 'Coral Plaza' },
+  start: { x: 560, y: 330 },
+  rico: { x: 820, y: 560 }, // Rico's Auto — garage and hideout
+  bank: { x: 1450, y: 1230 }, // Solmar National Bank front door (vault)
+  docks: { x: 2960, y: 1750 }, // marina pier
+  hospital: { x: 1050, y: 1950 }, // respawn after a bust
+  escape: { x: 2620, y: 240 }, // getaway point for the Big Score
+  courierLoop: { x: 1800, y: 900 }, // where the courier's loop starts
 };
 
-/**
- * The story: Milo Reyes, a getaway driver who owes fixer Vera Kline one last
- * job. Five missions, in order; each one names its target place and its
- * reward. `kind` tells the world how the mission is won.
- */
 export const MISSIONS = [
-  {
-    id: 'wheels',
-    title: 'WHEELS UP',
-    kind: 'drive-to',
-    target: 'autoshop',
-    reward: 300,
-    brief: "Vera: 'You need wheels, Milo. Steal any car and bring it to Rico's Auto on Coral Ave.'",
-    done: 'Rico grins. "She picks the good ones." The car is yours now.',
-  },
-  {
-    id: 'pickup',
-    title: 'THE PICKUP',
-    kind: 'fetch',
-    target: 'docks',
-    returnTo: 'safehouse',
-    reward: 500,
-    brief: "Vera: 'A package is waiting at the Marina Docks. Grab it and bring it back to the garage. No peeking.'",
-    done: 'The package is in. Vera nods once. That is her version of a hug.',
-  },
-  {
-    id: 'tail',
-    title: 'TAIL JOB',
-    kind: 'tail',
-    target: 'bank',
-    reward: 800,
-    brief: "Vera: 'A courier is running cash for the Marlowe crew. Follow him — close, but not too close — and see where he stops.'",
-    done: 'The courier stops at the bank. Vera now knows where the money sleeps.',
-  },
-  {
-    id: 'heat',
-    title: 'HEAT WAVE',
-    kind: 'escape',
-    target: 'safehouse',
-    reward: 1000,
-    brief: "Vera: 'Somebody talked. The whole Solmar PD is on you. Lose them and get back to the garage — three stars and counting.'",
-    done: 'You slip the dragnet. Vera is already planning the next one.',
-  },
-  {
-    id: 'score',
-    title: 'THE BIG SCORE',
-    kind: 'robbery',
-    target: 'bank',
-    returnTo: 'safehouse',
-    reward: 2500,
-    brief: "Vera: 'Tonight we take the bank. Hold the vault, grab the cash, and run. This is the one that clears your debt, Milo.'",
-    done: 'The vault is empty and so is your debt. Solmar is yours now, Milo Reyes.',
-  },
+  { id: 'wheels', name: 'Wheels Up', reward: 300, brief: 'Steal a car for Rico' },
+  { id: 'pickup', name: 'The Pickup', reward: 500, brief: 'Fetch the package from the docks' },
+  { id: 'tail', name: 'Tail Job', reward: 800, brief: 'Follow the courier — stay out of sight' },
+  { id: 'heat', name: 'Heat Wave', reward: 1000, brief: 'Lose the three-star dragnet' },
+  { id: 'score', name: 'The Big Score', reward: 2400, brief: 'Rob Solmar National Bank' },
 ];
 
-export const START_MONEY = 150;
+export const TUNE = {
+  footWalk: 175,
+  footRun: 265,
+  footAccel: 1500,
+  carAccel: 520,
+  carBrake: 900,
+  carReverseMax: 150,
+  carTop: 470,
+  carTurn: 2.9,
+  carRadius: 17,
+  cruiserTop: 450,
+  cruiserRamDamage: 5,
+  cruiserRamCooldown: 1.8,
+  copSpeed: 150,
+  copShotDamage: 4,
+  copShotRange: 320,
+  copShotCooldown: 1.3,
+  guardShotDamage: 3,
+  guardShotRange: 320,
+  guardShotCooldown: 1.4,
+  pistolAmmo: 12,
+  pistolCooldown: 0.18,
+  pistolRange: 430,
+  pistolDamage: 34,
+  trafficSpeed: 150,
+  pedSpeed: 42,
+  wantedDecaySeconds: 8,
+  tailTime: 20,
+  tailMin: 100,
+  tailMax: 380,
+  vaultTime: 10,
+  vaultRadius: 130,
+};
 
 export const PALETTE = {
-  grass: '#7fae62',
-  grassDark: '#6f9e55',
-  park: '#69a854',
-  sand: '#e8cf9a',
-  water: '#3f9ec4',
-  waterDeep: '#2f83ad',
-  asphalt: '#3d3a38',
-  asphaltLight: '#454140',
-  lane: '#e8d44f',
-  sidewalk: '#b9b2a4',
-  curb: '#8f887a',
-  building: ['#e8a34c', '#d97b6c', '#7fb3d5', '#c9b458', '#9db98a', '#b98ac9', '#e07a5f', '#6fa8a0'],
-  roof: ['#a8622d', '#8f4a3f', '#4f7d9e', '#8f7d33', '#5f7d4f', '#7d5a8f', '#9e4a35', '#3f6d66'],
-  window: '#2e3d4d',
-  windowLit: '#ffd97a',
-  tree: '#3f7d3a',
-  treeDark: '#2f6130',
+  grass: '#7fae5a',
+  grassDark: '#74a24f',
+  sidewalk: '#b9b3a4',
+  road: '#3c3f46',
+  roadLine: '#e8d44d',
+  building: ['#c98f5f', '#b57a6e', '#8f9bb0', '#a89a7a', '#7d8ba0', '#c2a06b'],
+  roof: ['#8a5a3b', '#6e4a52', '#5d6b80', '#7a6a4a'],
+  park: '#5d9b4a',
+  tree: '#2f6b2a',
+  sand: '#e0c98f',
+  water: '#2e6f9e',
+  waterDeep: '#25608c',
   player: '#f2c94c',
-  playerJacket: '#2f6fb2',
-  ped: ['#e07a5f', '#7fb3d5', '#9db98a', '#c9b458', '#b98ac9', '#e8a34c'],
-  policeCar: '#2f4d6d',
-  policeLightR: '#ff3b30',
-  policeLightB: '#2f7bff',
-  taxi: '#f2c94c',
-  text: '#f4f1e8',
-  muted: '#b8b2a4',
-  panel: 'rgba(16, 18, 24, 0.86)',
-  panelEdge: '#f2c94c',
-  star: '#ffd94a',
-  starEmpty: '#5a5548',
-  health: '#58c96b',
-  healthLow: '#e5534b',
-  marker: '#ffd94a',
-  markerPulse: 'rgba(255, 217, 74, 0.35)',
-  objective: '#ffd94a',
-  danger: '#ff5a4a',
-  cash: '#7ee081',
+  playerCar: '#e8b13c',
+  traffic: ['#c94f43', '#4f7ec9', '#5aa37a', '#c9c9c9', '#7a5aa3', '#d08a3c'],
+  cruiser: '#20242c',
+  cruiserTrim: '#e8e8e8',
+  ped: ['#e8e0d0', '#d08a8a', '#8ab0d0', '#d0c08a', '#a08ad0'],
+  guard: '#2c3a2c',
+  cop: '#1f2a44',
+  text: '#f2f0e8',
+  muted: '#b9b3a4',
+  panel: 'rgba(12, 14, 20, 0.82)',
+  banner: '#ffd34d',
+  danger: '#ff5a4d',
+  money: '#7ddc7d',
 };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
