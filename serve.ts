@@ -1,15 +1,20 @@
-// A tiny static file server for local play-testing only (never part of the
-// entry's grading). Serves this directory on http://localhost:8080, with
-// game/ at / and screenshots/ alongside. Node 22, standard library only.
-
+// A tiny static server for game/ (Node 22, standard library only), so
+// an entry can be played locally without a build step: `node serve.ts`
+// serves game/ on http://localhost:8080. It sends the MIME types a
+// browser game needs, refuses any path outside game/, and otherwise
+// does nothing clever: a development convenience, not a web server.
+import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const PORT = 8080;
-const TYPES = {
+const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const args = process.argv.slice(2);
+const portIndex = args.indexOf('--port');
+const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+
+const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
@@ -20,20 +25,36 @@ const TYPES = {
   '.jpeg': 'image/jpeg',
 };
 
-const server = createServer((req, res) => {
-  const path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
-  // game/ is the web root: / loads game/index.html, /src/main.js is game/src/main.js.
-  const rel = path === '/' ? 'game/index.html' : `game${path}`;
-  const file = join(here, rel);
-  if (!file.startsWith(here) || !existsSync(file) || !statSync(file).isFile()) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('not found\n');
+createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end('bad request');
     return;
   }
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
-  createReadStream(file).pipe(res);
-});
-
-server.listen(PORT, () => {
-  console.log(`Solmar at http://localhost:${PORT}/`);
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const file = resolve(join(root, normalize(pathname)));
+  if (file !== root && !file.startsWith(root + sep)) {
+    response.writeHead(403).end('forbidden');
+    return;
+  }
+  let size;
+  try {
+    const stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+    size = stats.size;
+  } catch {
+    response.writeHead(404).end('not found');
+    return;
+  }
+  response.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': size,
+    'cache-control': 'no-store',
+  });
+  createReadStream(file).pipe(response);
+}).listen(port, '127.0.0.1', () => {
+  console.log(`game/ is on http://localhost:${port}`);
 });
