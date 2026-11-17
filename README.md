@@ -1,55 +1,63 @@
-# solmar — Streets of Gold
+# SOLMAR — Streets of Gold
 
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/rizko-d/gta6/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/rizko-d/gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-A top-down open-world crime game in the spirit of GTA, built for the
-make.fun gta6-01 bounty. You are **Milo Reyes**, a getaway driver in the
-sun-soaked coastal city of **Solmar**, running five story jobs for the fixer
-**Vera Kline** — from stealing your first car to the Big Score at Solmar
-National Bank. Everything is original: the city, the characters, the
-vehicles, the story, the art (drawn on canvas) and the sound (synthesised
-with WebAudio). Nothing from Rockstar Games.
+A top-down open-world crime game in the spirit of GTA (GTA 1/2 camera),
+built for [make.fun gta6-01](https://make.fun/bounty/gta6-01). You are
+**Milo Reyes**, a getaway driver who owes the fixer **Vera Kline** one
+last job, in **Solmar** — an original sun-soaked coastal city. All names,
+characters, vehicles, story, art (canvas-drawn) and sound (WebAudio
+synthesis) are original; nothing from Rockstar Games.
 
-## How to play
+## What is in the game
 
-- **WASD / Arrows** — move on foot, drive when in a car
-- **Mouse** — aim, **click** — shoot (pistol, 12 rounds, **R** reloads)
-- **E** — steal a car / get out of a car
-- **Shift** — run on foot, **Space** — handbrake while driving
-- **P / Esc** — pause, **M** — mute, **Space** — start / restart
+- **A city** — a seeded 3200×2400 grid of avenues and streets with
+  buildings, two parks, a beach and a marina. Traffic drives the road
+  network (lane following, turning at intersections, braking behind
+  each other); pedestrians stroll the sidewalks and flee gunfire.
+- **On foot and by car** — WASD moves, mouse aims, click shoots a pistol
+  (12 rounds, R reloads). E steals any car — parked ones are free,
+  traffic cars cost a wanted star and their driver runs — and E gets you
+  out again. Arcade driving: throttle, steering, handbrake, wall slides.
+- **Wanted level 0–5** — stealing, shooting, killing and running people
+  over raise it. Police cruisers chase and ram; foot cops shoot and try
+  to bust you on foot. Stay out of sight and the heat cools off one star
+  at a time. Rico's Auto is a hideout where cruisers lose your trail.
+- **Five story missions** — Wheels Up (steal a car for Rico's Auto), The
+  Pickup (fetch a package from the docks), Tail Job (follow a courier
+  for 20 s without being spotted), Heat Wave (escape a three-star
+  dragnet to the garage), The Big Score (hold the bank vault against
+  guards, grab the cash, run). Rewards $300–$2,400; a failed job can be
+  retried with Enter; finishing all five makes you a Solmar legend and
+  opens free roam.
+- **HUD and save** — cash, health bar, ammo/speed, wanted stars, mission
+  objective banner, progress bars and a live minimap (roads, player
+  arrow, mission marker, police dots, courier). Title, pause (P/Esc,
+  also on tab-hide), mute (M), busted screen (keeps 80% of cash),
+  story-complete screen. Cash and the mission reached are saved to
+  localStorage; C on the title screen continues a saved game.
 
-Steal any car — parked ones are free, traffic cars cost you a wanted star
-and their driver runs. Shoot, run people over, or rob the bank and the
-Solmar PD comes for you: one star per crime, up to five, with cruisers that
-ram you and foot cops that shoot and try to bust you. Stay out of sight and
-the heat cools off, one star at a time.
+## Controls
 
-Five missions, in order: **Wheels Up** (steal a car), **The Pickup** (fetch
-a package from the docks), **Tail Job** (follow a courier without losing
-him), **Heat Wave** (escape a three-star dragnet), and **The Big Score**
-(hold the bank vault, grab the cash, run). Finish all five and you are a
-Solmar legend. Cash, the mission reached, and your best run are saved in
-your browser — press **C** on the title screen to continue.
+| Input | Action |
+|---|---|
+| WASD / Arrows | Move on foot / drive |
+| Mouse | Aim, **click** shoot |
+| E | Steal car / exit car |
+| R | Reload |
+| Shift | Run on foot |
+| Space | Handbrake (driving) / start / restart |
+| P / Esc | Pause / resume |
+| M | Mute |
+| C (title) | Continue saved game |
 
-## Run it
+## How to run
 
 ```sh
-node serve.ts
-# open http://localhost:8080
+node serve.ts            # http://localhost:8080
+MAKEFUN_OUTPUT_DIR=out node main.ts   # grader-style build
 ```
 
-Or hand it in the way the grader does:
-
-```sh
-MAKEFUN_OUTPUT_DIR=/tmp/out node main.ts
-```
-
-No build step, no network, no libraries: plain static files under `game/`,
-sound synthesised with WebAudio, art drawn on canvas. Best run is kept in
-your browser's localStorage.
-
----
-
-<sub>Entered on [make.fun](https://make.fun/?ref=rizko-f&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+See `BUILD_REPORT.md` for what was verified and the known weaknesses.
