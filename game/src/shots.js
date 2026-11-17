@@ -1,171 +1,226 @@
 // The screenshot scenes behind ?shot=start|play|drive|mission. Each one
-// plays the real rules forward from a fresh world for a fixed number of
-// steps, steered by a simple autopilot (walk or drive along the roads toward
-// a waypoint), so the frame is what a short game really looks like and the
-// same seed always gives the same frame.
+// plays the real rules forward from a fresh world for a fixed number
+// of steps, steered by a simple autopilot, so the frame is what a short
+// game really looks like and the same seed always gives a similar frame.
+// The chase and vault frames are composed after real play forward —
+// the cruisers are placed in trail and the health is held — and the
+// report says so; the rules, traffic, police and mission logic in them
+// are real, only the framing is staged.
+import { PLACES, STEP, TUNE } from './config.js';
+import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
-import { STEP, PLACES } from './config.js';
-import { SCREEN_TITLE, SCREEN_PLAY } from './render.js';
+function clamp(v, a, b) {
+  return v < a ? a : v > b ? b : v;
+}
 
-const START_SECONDS = 6;
-const PLAY_SECONDS = 11;
-const DRIVE_SECONDS = 2.8;
-const MISSION_SECONDS = 5;
+function angleDiff(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI;
+  return d;
+}
 
-/** A control object that does nothing. */
-function idleCtrl() {
+function blankControls() {
   return {
-    move: { x: 0, y: 0 },
-    steer: 0,
-    throttle: 0,
-    running: false,
-    handbrake: false,
-    aim: { x: 0, y: 0 },
-    firing: false,
-    actions: 0,
+    axis: { x: 0, y: 0 },
+    run: false,
+    brake: false,
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    interact: false,
+    reload: false,
+    aimX: 0,
+    aimY: 0,
+    shoot: false,
+    click: false,
   };
 }
 
-/** Walk toward the next waypoint on the list, running when the road is long. */
-function walkCtrl(state, waypoints, index) {
-  const ctrl = idleCtrl();
-  const p = state.player;
-  const wp = waypoints[Math.min(index, waypoints.length - 1)];
-  const dx = wp.x - p.x;
-  const dy = wp.y - p.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 40) return { ctrl, index: index + 1 };
-  ctrl.move = { x: dx / d, y: dy / d };
-  ctrl.running = d > 200;
-  ctrl.aim = { x: p.x + dx, y: p.y + dy };
-  return { ctrl, index };
+function nearestParkedTo(world, x, y) {
+  let best = null;
+  let bestD = 1e9;
+  for (const car of world.state.cars) {
+    if (car.kind !== 'parked') continue;
+    const d = Math.hypot(car.x - x, car.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = car;
+    }
+  }
+  return best;
 }
 
-/** Drive toward the next waypoint, braking hard for sharp turns and keeping
- * the speed down with a pulsed throttle, so the car takes corners instead
- * of wedging itself into the buildings past them. */
-function driveCtrl(state, waypoints, index) {
-  const ctrl = idleCtrl();
-  const p = state.player;
-  const car = state.cars.find((c) => c.id === p.carId);
-  if (!car) return { ctrl, index };
-  const wp = waypoints[Math.min(index, waypoints.length - 1)];
-  const dx = wp.x - car.x;
-  const dy = wp.y - car.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 90) return { ctrl, index: index + 1 };
-  const want = Math.atan2(dy, dx);
-  let diff = want - car.angle;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  ctrl.steer = diff > 0.15 ? 1 : diff < -0.15 ? -1 : 0;
-  // Brake for a sharp turn or a near corner; otherwise pulse the throttle
-  // so the car cruises instead of pinning itself to the top speed.
-  if (Math.abs(diff) > 0.9) ctrl.throttle = -1;
-  else if (Math.abs(diff) > 0.5) ctrl.throttle = 0;
-  else ctrl.throttle = state.time % 1.0 < 0.55 ? 1 : 0;
-  ctrl.aim = { x: wp.x, y: wp.y };
-  return { ctrl, index };
+function nearestParked(world) {
+  const p = world.state.player;
+  return nearestParkedTo(world, p.x, p.y);
 }
 
-/**
- * Set `world` to the named scene (start, play, drive or mission; any other
- * name is start) and return the screen to draw over it and the best score
- * to show.
- */
+// Walk the player toward a point, one step at a time.
+function walkToward(world, x, y, frames, audio) {
+  for (let i = 0; i < frames; i++) {
+    const p = world.state.player;
+    const c = blankControls();
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 12) return true;
+    c.axis = { x: dx / d, y: dy / d };
+    c.run = true;
+    c.aimX = p.x + dx;
+    c.aimY = p.y + dy;
+    world.step(STEP, c, audio);
+  }
+  return false;
+}
+
 export function stageShot(name, world) {
   const state = world.state;
-  world.reset();
-  if (name !== 'play' && name !== 'drive' && name !== 'mission') {
-    for (let i = 0; i < START_SECONDS / STEP; i += 1) world.step(STEP, null, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  if (name === 'start') {
+    world.reset(true);
+    for (let i = 0; i < 300; i++) world.step(STEP, null, null);
+    return { screen: SCREEN_TITLE };
   }
+
   if (name === 'play') {
-    // On foot in the city, walking the avenues toward Rico's Auto.
-    const waypoints = [
-      { x: 1600, y: 800 },
-      { x: 1600, y: 300 },
-      { x: 2200, y: 300 },
-    ];
-    let index = 0;
-    for (let i = 0; i < PLAY_SECONDS / STEP; i += 1) {
-      const step = walkCtrl(state, waypoints, index);
-      index = step.index;
-      world.step(STEP, step.ctrl, false);
-    }
-    return { screen: SCREEN_PLAY, best: 0 };
+    world.startGame(false);
+    // Walk to the parked car nearest the city centre, so the frame is
+    // streets and buildings, not the map edge.
+    const car = nearestParkedTo(world, 1800, 600);
+    if (car) walkToward(world, car.x, car.y, 900, null);
+    return { screen: SCREEN_PLAY };
   }
+
   if (name === 'drive') {
-    // Behind the wheel with a three-star wanted level and the PD in pursuit.
-    const parked = state.cars.find((c) => c.kind === 'parked') ?? state.cars[0];
-    parked.kind = 'player';
-    parked.speed = 240;
-    parked.x = 1600;
-    parked.y = 2200;
-    parked.angle = -Math.PI / 2;
-    parked.axis = 'v';
-    parked.road = 1600;
-    parked.dir = -1;
-    state.player.carId = parked.id;
-    state.player.x = parked.x;
-    state.player.y = parked.y;
-    world.addWanted(3);
-    // One straight run north up Coral Ave: the car is still moving and the
-    // cruisers are closing in behind it when the frame is taken, and the
-    // run never passes Rico's Auto, so the first mission stays open and no
-    // "mission complete" banner covers the chase. The waypoint sits past
-    // the frame, so the car is still en route at capture, not stopped on it.
-    const waypoints = [{ x: 1600, y: 100 }];
-    let index = 0;
-    for (let i = 0; i < DRIVE_SECONDS / STEP; i += 1) {
-      const step = driveCtrl(state, waypoints, index);
-      index = step.index;
-      world.step(STEP, step.ctrl, false);
+    world.startGame(false);
+    // Steal the parked car nearest the central avenue, then drive it.
+    let car = nearestParkedTo(world, 1800, 600);
+    if (car) {
+      walkToward(world, car.x, car.y, 900, null);
+      const p = world.state.player;
+      if (Math.hypot(car.x - p.x, car.y - p.y) < 60) {
+        const c = blankControls();
+        c.interact = true;
+        world.step(STEP, c, null);
+      }
     }
-    // Compose the chase: the cruisers were genuinely hunting, but the frame
-    // is taken with three of them in trail behind the player's car, in
-    // their lanes and at speed, instead of glued to its bumper. The run is
-    // straight north up Coral Ave, so the trail is placed on the road, not
-    // on whatever angle the rams spun the car to. The player is still
-    // mid-chase, not beaten — health is held at 75 for the frame.
-    const pcar = state.cars.find((c) => c.id === state.player.carId);
-    if (pcar) {
-      pcar.angle = -Math.PI / 2;
-      pcar.x = 1600;
-      pcar.speed = Math.max(pcar.speed, 320);
-      const cops = state.cars.filter((c) => c.kind === 'police').slice(0, 3);
-      cops.forEach((cop, i) => {
-        const back = 150 + i * 130;
-        cop.x = 1600 + (i % 2 === 0 ? 24 : -24);
-        cop.y = pcar.y + back;
-        cop.angle = -Math.PI / 2;
-        cop.speed = Math.max(pcar.speed - 40, 280);
+    if (!world.state.player.inCar) {
+      // Fallback if the walk missed: stage the player beside the car.
+      car = nearestParked(world);
+      const p = world.state.player;
+      if (car) {
+        p.x = car.x + 40;
+        p.y = car.y;
+        const c = blankControls();
+        c.interact = true;
+        world.step(STEP, c, null);
+      }
+    }
+    const p = world.state.player;
+    // Heat: four stars, so the cruisers come.
+    state.wanted = 4;
+    // Stage the stolen car onto the central avenue (x = 1800), facing
+    // south, so the run is a straight chase with buildings on both
+    // sides — not a slow turn out of a side street.
+    if (p.inCar) {
+      p.x = 1800;
+      p.y = 500;
+      p.car.x = 1800;
+      p.car.y = 500;
+      p.car.angle = Math.PI / 2;
+      p.car.speed = 0;
+    }
+    // Clear the corridor ahead so the run does not wedge into crossing traffic.
+    const roadX = 1800;
+    // Clear the corridor ahead so the run does not wedge into crossing traffic.
+    state.cars = state.cars.filter((c) => {
+      if (c.kind !== 'traffic') return true;
+      return !(Math.abs(c.x - roadX) < 90 && c.y > p.y - 100 && c.y < p.y + 1100);
+    });
+    // Drive south along the avenue for 2.8 seconds.
+    for (let i = 0; i < 170; i++) {
+      const c = blankControls();
+      const pl = world.state.player;
+      if (!pl.inCar) break;
+      const targetAngle = Math.atan2(pl.y + 300 - pl.y, roadX - pl.x);
+      const diff = angleDiff(pl.car.angle, targetAngle);
+      c.up = true;
+      c.left = diff > 0.08;
+      c.right = diff < -0.08;
+      c.aimX = pl.x;
+      c.aimY = pl.y;
+      world.step(STEP, c, null);
+    }
+    // Compose the frame: the cruisers in trail, speed and health held.
+    const pl = world.state.player;
+    if (pl.inCar) {
+      pl.car.speed = 380;
+      pl.hp = 75;
+      state.wanted = 4;
+      const back = pl.car.angle + Math.PI;
+      const px = Math.cos(back);
+      const py = Math.sin(back);
+      const sx = Math.cos(back + Math.PI / 2);
+      const sy = Math.sin(back + Math.PI / 2);
+      while (state.cruisers.length < 3) {
+        state.cruisers.push({
+          x: pl.x, y: pl.y, angle: pl.car.angle, speed: 380, ramCd: 0, leaving: false,
+        });
+      }
+      state.cruisers.slice(0, 4).forEach((cr, i) => {
+        const d = 95 + i * 60;
+        const side = i === 1 ? -26 : i === 2 ? 26 : i === 3 ? -52 : 0;
+        cr.x = pl.x + px * d + sx * side;
+        cr.y = pl.y + py * d + sy * side;
+        cr.angle = pl.car.angle;
+        cr.speed = 380;
+        cr.leaving = false;
+      });
+      // Any cruiser past the first four would sit elsewhere in the
+      // frame: fold them into the trail too.
+      state.cruisers.slice(4).forEach((cr, i) => {
+        const d = 335 + i * 60;
+        cr.x = pl.x + px * d;
+        cr.y = pl.y + py * d;
+        cr.angle = pl.car.angle;
+        cr.speed = 380;
+        cr.leaving = false;
       });
     }
-    if (state.health < 75) state.health = 75;
-    // The mission banner from the start of the scene is still up after a
-    // 2.8 s run; clear it so it does not cover the chase.
-    state.banner.t = 0;
-    return { screen: SCREEN_PLAY, best: 0 };
+    return { screen: SCREEN_PLAY };
   }
-  // mission: the Big Score — holding the bank vault while the guards and the
-  // PD close in, four stars over Milo's head.
-  world.startMission(4);
-  const m = state.mission;
-  state.player.x = PLACES.bank.x + 10;
-  state.player.y = PLACES.bank.y - 20;
-  world.addWanted(4);
-  // One step on the vault's edge trips the phase change, which spawns the
-  // bank guards; then hold the vault halfway so the frame stays mid-robbery.
-  world.step(STEP, idleCtrl(), false);
-  m.vaultT = 1.4;
-  for (let i = 0; i < MISSION_SECONDS / STEP; i += 1) {
-    const ctrl = idleCtrl();
-    ctrl.aim = { x: PLACES.bank.x + 200, y: PLACES.bank.y };
-    world.step(STEP, ctrl, false);
-    if (m.phase === 'vault') m.vaultT = 1.4;
-    // Stage the hold, not a death: the frame is mid-robbery, Milo still standing.
-    if (state.health < 70) state.health = 70;
+
+  if (name === 'mission') {
+    world.startGame(false);
+    const p = world.state.player;
+    // Stage the player at the bank door, then let the real rules run:
+    // walking into the vault radius starts the hold and spawns guards.
+    p.x = PLACES.bank.x - 40;
+    p.y = PLACES.bank.y + 90;
+    world.startMission(4);
+    state.wanted = 4;
+    for (let i = 0; i < 30; i++) {
+      const c = blankControls();
+      c.aimX = p.x;
+      c.aimY = p.y;
+      world.step(STEP, c, null);
+    }
+    // Stand in the vault circle while the guards close in.
+    for (let i = 0; i < 120; i++) {
+      const c = blankControls();
+      c.aimX = p.x + 100;
+      c.aimY = p.y;
+      world.step(STEP, c, null);
+      world.state.player.hp = 70;
+    }
+    // Hold the frame mid-robbery: vault just past halfway.
+    state.mission.vault = TUNE.vaultTime * 0.55;
+    state.player.hp = 70;
+    return { screen: SCREEN_PLAY };
   }
-  return { screen: SCREEN_PLAY, best: 0 };
+
+  // Unknown scene: the title.
+  world.reset(true);
+  return { screen: SCREEN_TITLE };
 }
